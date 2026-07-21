@@ -1,0 +1,34 @@
+# Perch app release workflow. Copy to .github/workflows/release.yml in a new
+# app repo. Builds a static ARM64 binary and publishes the `latest` release that
+# Perch pulls. Requires the cargo package name to equal the repo name.
+name: build-release
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          rustup target add aarch64-unknown-linux-musl
+          sudo apt-get update -qq && sudo apt-get install -y -qq musl-tools
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --target aarch64-unknown-linux-musl
+      - name: Package
+        run: |
+          BIN="${GITHUB_REPOSITORY##*/}"           # binary == repo name
+          cp "target/aarch64-unknown-linux-musl/release/$BIN" "$BIN"
+          echo "${GITHUB_SHA::8}" > VERSION
+          sha256sum "$BIN" > "$BIN.sha256"
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: "latest (${{ github.sha }})"
+          files: |
+            ${{ github.event.repository.name }}
+            ${{ github.event.repository.name }}.sha256
+            VERSION
