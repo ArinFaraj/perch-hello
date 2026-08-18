@@ -23,11 +23,12 @@ jobs:
           BIN="${GITHUB_REPOSITORY##*/}"           # binary == repo name
           cp "target/aarch64-unknown-linux-musl/release/$BIN" "$BIN"
           echo "${GITHUB_SHA::8}" > VERSION
+          echo "SHORT_SHA=${GITHUB_SHA::8}" >> "$GITHUB_ENV"
           sha256sum "$BIN" > "$BIN.sha256"
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: latest
-          name: "latest (${{ github.sha }})"
+          tag_name: sha-${{ env.SHORT_SHA }}
+          name: "sha-${{ env.SHORT_SHA }} (${{ github.sha }})"
           files: |
             ${{ github.event.repository.name }}
             ${{ github.event.repository.name }}.sha256
