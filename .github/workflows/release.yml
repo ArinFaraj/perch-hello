@@ -10,6 +10,8 @@ permissions:
   contents: write
 jobs:
   build:
+    outputs:
+      tag: ${{ steps.pkg.outputs.tag }}
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
@@ -19,16 +21,23 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release --target aarch64-unknown-linux-musl
       - name: Package
+        id: pkg
         run: |
           BIN="${GITHUB_REPOSITORY##*/}"           # binary == repo name
           cp "target/aarch64-unknown-linux-musl/release/$BIN" "$BIN"
           echo "${GITHUB_SHA::8}" > VERSION
-          echo "SHORT_SHA=${GITHUB_SHA::8}" >> "$GITHUB_ENV"
+          # main publishes sha-<short>; any other branch prefixes its own name.
+          # A branch cut from main starts on the same commit, and one tag for
+          # two lines would have re-published the production release as a
+          # prerelease the first time dev built.
+          [ "$GITHUB_REF_NAME" = main ] && TAG="sha-${GITHUB_SHA::8}" || TAG="$GITHUB_REF_NAME-${GITHUB_SHA::8}"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           sha256sum "$BIN" > "$BIN.sha256"
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: sha-${{ env.SHORT_SHA }}
-          name: "sha-${{ env.SHORT_SHA }} (${{ github.sha }})"
+          tag_name: ${{ env.TAG }}
+          name: "${{ env.TAG }} (${{ github.sha }})"
           prerelease: ${{ github.ref_name != 'main' }}
           files: |
             ${{ github.event.repository.name }}
