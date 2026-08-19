@@ -6,7 +6,7 @@ async fn main() {
     let app = Router::new()
         .route(
             "/",
-            get(|| async { "hello from perch-hello 🐦 - deployed by Perch\nNew\nHi" }),
+            get(|| async { "hello from perch-hello 🐦 - deployed by Perch" }),
         )
         .route("/healthz", get(|| async { "ok" }));
     let addr = std::env::var("BIND").unwrap_or_else(|_| "0.0.0.0:8080".into());
