@@ -4,7 +4,7 @@
 name: build-release
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   workflow_dispatch:
 permissions:
   contents: write
@@ -29,6 +29,7 @@ jobs:
         with:
           tag_name: sha-${{ env.SHORT_SHA }}
           name: "sha-${{ env.SHORT_SHA }} (${{ github.sha }})"
+          prerelease: ${{ github.ref_name != 'main' }}
           files: |
             ${{ github.event.repository.name }}
             ${{ github.event.repository.name }}.sha256
