@@ -43,3 +43,27 @@ jobs:
             ${{ github.event.repository.name }}
             ${{ github.event.repository.name }}.sha256
             VERSION
+
+  # Tell edge-state what was built. It decides what that feeds and whether the
+  # change needs approval, so adding an environment never means editing this
+  # repo. See docs/STATE-SPEC.md, "Promotion".
+  bump:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: token
+        with:
+          app-id: ${{ secrets.EDGE_STATE_APP_ID }}
+          private-key: ${{ secrets.EDGE_STATE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: edge-state
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/edge-state
+          token: ${{ steps.token.outputs.token }}
+          # ci/bump rebases when two app repos race to push here.
+          fetch-depth: 0
+      - run: ci/bump "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" "${{ needs.build.outputs.tag }}"
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
