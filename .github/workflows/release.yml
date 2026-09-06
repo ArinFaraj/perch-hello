@@ -1,10 +1,20 @@
-# Perch app release workflow. Copy to .github/workflows/release.yml in a new
-# app repo. Builds a static ARM64 binary and publishes the `latest` release that
-# Perch pulls. Requires the cargo package name to equal the repo name.
+# Perch app release workflow for a Rust binary. Copy to
+# .github/workflows/release.yml in a new app repo. It builds a static
+# aarch64-musl binary, publishes one immutable release per commit (tagged
+# sha-<short> from main, <branch>-<short> elsewhere), and calls edge-state's
+# ci/bump to move the pin. See docs/STATE-SPEC.md, "Promotion".
+#
+# The cargo package name must equal the repo name.
+#
+# Two secrets, both for a GitHub App that may write to edge-state and open pull
+# requests on it:
+#   EDGE_STATE_APP_ID   the App's numeric id
+#   EDGE_STATE_APP_KEY  its private key, the whole .pem
 name: build-release
 on:
   push:
     branches: [main, dev]
+    paths-ignore: ['**/*.md', 'docs/**', '.gitignore', 'LICENSE']
   workflow_dispatch:
 permissions:
   contents: write
@@ -23,17 +33,13 @@ jobs:
       - name: Package
         id: pkg
         run: |
-          BIN="${GITHUB_REPOSITORY##*/}"           # binary == repo name
+          BIN="${GITHUB_REPOSITORY##*/}"
           cp "target/aarch64-unknown-linux-musl/release/$BIN" "$BIN"
           echo "${GITHUB_SHA::8}" > VERSION
-          # main publishes sha-<short>; any other branch prefixes its own name.
-          # A branch cut from main starts on the same commit, and one tag for
-          # two lines would have re-published the production release as a
-          # prerelease the first time dev built.
+          sha256sum "$BIN" > "$BIN.sha256"
           [ "$GITHUB_REF_NAME" = main ] && TAG="sha-${GITHUB_SHA::8}" || TAG="$GITHUB_REF_NAME-${GITHUB_SHA::8}"
           echo "TAG=$TAG" >> "$GITHUB_ENV"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          sha256sum "$BIN" > "$BIN.sha256"
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}
@@ -44,9 +50,6 @@ jobs:
             ${{ github.event.repository.name }}.sha256
             VERSION
 
-  # Tell edge-state what was built. It decides what that feeds and whether the
-  # change needs approval, so adding an environment never means editing this
-  # repo. See docs/STATE-SPEC.md, "Promotion".
   bump:
     needs: build
     runs-on: ubuntu-latest
@@ -62,7 +65,8 @@ jobs:
         with:
           repository: ${{ github.repository_owner }}/edge-state
           token: ${{ steps.token.outputs.token }}
-          # ci/bump rebases when two app repos race to push here.
+          # ci/bump rebases when two app repos race to push. A shallow clone
+          # cannot rebase.
           fetch-depth: 0
       - run: ci/bump "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" "${{ needs.build.outputs.tag }}"
         env:
