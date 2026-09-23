@@ -1,0 +1,90 @@
+# Perch pull request previews for a Rust binary. Copy to
+# .github/workflows/preview.yml next to the release workflow. Each push to an
+# open pull request publishes a prerelease tagged pr-<n>-<short> and has
+# edge-state's ci/preview declare <app>-pr-<n>, a copy of PREVIEW_OF pinned to
+# it; closing the pull request drops it, and Perch removes it from the box.
+# See perch/docs/STATE-SPEC.md, "Previews".
+#
+# Same two secrets as the release workflow: EDGE_STATE_APP_ID and
+# EDGE_STATE_APP_KEY, for a GitHub App that may write to edge-state.
+name: preview
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+permissions:
+  contents: write
+env:
+  # The edge-state app document a preview copies.
+  PREVIEW_OF: one
+jobs:
+  build:
+    if: github.event.action != 'closed'
+    outputs:
+      tag: ${{ steps.pkg.outputs.tag }}
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - run: |
+          rustup target add aarch64-unknown-linux-musl
+          sudo apt-get update -qq && sudo apt-get install -y -qq musl-tools
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --target aarch64-unknown-linux-musl
+      - name: Package
+        id: pkg
+        env:
+          SHA: ${{ github.event.pull_request.head.sha }}
+          PR: ${{ github.event.number }}
+        run: |
+          BIN="${GITHUB_REPOSITORY##*/}"
+          cp "target/aarch64-unknown-linux-musl/release/$BIN" "$BIN"
+          sha256sum "$BIN" > "$BIN.sha256"
+          TAG="pr-$PR-${SHA::8}"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          target_commitish: ${{ github.event.pull_request.head.sha }}
+          name: "${{ env.TAG }} (${{ github.event.pull_request.head.sha }})"
+          prerelease: true
+          files: |
+            ${{ github.event.repository.name }}
+            ${{ github.event.repository.name }}.sha256
+
+  declare:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: token
+        with:
+          app-id: ${{ secrets.EDGE_STATE_APP_ID }}
+          private-key: ${{ secrets.EDGE_STATE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: edge-state
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/edge-state
+          token: ${{ steps.token.outputs.token }}
+          fetch-depth: 0
+      - run: ci/preview open "$GITHUB_REPOSITORY" "${{ github.event.number }}" "${{ needs.build.outputs.tag }}" "$PREVIEW_OF"
+
+  drop:
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: token
+        with:
+          app-id: ${{ secrets.EDGE_STATE_APP_ID }}
+          private-key: ${{ secrets.EDGE_STATE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: edge-state
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/edge-state
+          token: ${{ steps.token.outputs.token }}
+          fetch-depth: 0
+      - run: ci/preview close "$GITHUB_REPOSITORY" "${{ github.event.number }}" "$PREVIEW_OF"
